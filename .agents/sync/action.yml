@@ -10,9 +10,9 @@ inputs:
     required: false
     default: main
   model:
-    description: Anthropic model passed to Pi.
+    description: OpenCode Go model passed to Pi.
     required: false
-    default: claude-sonnet-4-6
+    default: glm-5.3-flash
 
 runs:
   using: composite
@@ -20,8 +20,8 @@ runs:
     - name: Validate model credentials
       shell: bash
       run: |
-        if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
-          echo "::error::PI_ANTHROPIC_API_KEY is not configured."
+        if [[ -z "${OPENCODE_API_KEY:-}" ]]; then
+          echo "::error::OPENCODE_GO_API_KEY is not configured."
           exit 1
         fi
 
@@ -116,7 +116,7 @@ runs:
           --no-context-files \
           --no-approve \
           --tools read,edit,write,grep,find,ls \
-          --provider anthropic \
+          --provider opencode-go \
           --model "${{ inputs.model }}" \
           < .agents/sync/reconcile.md
 
