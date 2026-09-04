@@ -1,0 +1,33 @@
+name: Sync with upstream
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * 1"
+
+concurrency:
+  group: sync-with-upstream
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    name: Reconcile upstream
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run guarded reconciliation
+        uses: ./.agents/sync
+        with:
+          upstream-repository: mattpocock/skills
+          upstream-branch: main
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.PI_ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ github.token }}

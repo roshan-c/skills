@@ -1,0 +1,161 @@
+name: Guarded upstream reconciliation
+description: Reconcile upstream with Pi while preserving explicit Triathlon fork regions.
+
+inputs:
+  upstream-repository:
+    description: GitHub owner/repository to synchronize from.
+    required: true
+  upstream-branch:
+    description: Upstream branch to synchronize.
+    required: false
+    default: main
+  model:
+    description: Anthropic model passed to Pi.
+    required: false
+    default: claude-sonnet-4-6
+
+runs:
+  using: composite
+  steps:
+    - name: Validate model credentials
+      shell: bash
+      run: |
+        if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+          echo "::error::PI_ANTHROPIC_API_KEY is not configured."
+          exit 1
+        fi
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22.19.0
+
+    - name: Install Pi
+      shell: bash
+      run: npm install --global @earendil-works/pi-coding-agent@0.85.0
+
+    - name: Prepare upstream branch
+      shell: bash
+      env:
+        UPSTREAM_REPOSITORY: ${{ inputs.upstream-repository }}
+        UPSTREAM_BRANCH: ${{ inputs.upstream-branch }}
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git remote remove upstream 2>/dev/null || true
+        git remote add upstream "https://github.com/${UPSTREAM_REPOSITORY}.git"
+        git fetch --no-tags upstream "${UPSTREAM_BRANCH}"
+
+        upstream_ref="upstream/${UPSTREAM_BRANCH}"
+        upstream_sha="$(git rev-parse "${upstream_ref}")"
+        short_sha="$(git rev-parse --short=12 "${upstream_ref}")"
+        sync_branch="sync/upstream-${short_sha}-${GITHUB_RUN_ID}"
+        git switch -c "${sync_branch}"
+
+        {
+          echo "UPSTREAM_REF=${upstream_ref}"
+          echo "UPSTREAM_SHA=${upstream_sha}"
+          echo "FORK_REF=${GITHUB_SHA}"
+          echo "SYNC_BRANCH=${sync_branch}"
+          echo "SYNC_REPORT_PATH=${RUNNER_TEMP}/triathlon-sync-report.md"
+        } >> "${GITHUB_ENV}"
+
+    - name: Check fork hook points
+      id: preflight
+      continue-on-error: true
+      shell: bash
+      run: node .agents/sync/guard.mjs preflight
+
+    - name: Open blocked reconciliation PR
+      if: steps.preflight.outcome == 'failure'
+      shell: bash
+      run: |
+        cp "${SYNC_REPORT_PATH}" .agents/sync/BLOCKED.md
+        git add .agents/sync/BLOCKED.md
+        git commit -m "chore: flag blocked upstream sync @ ${UPSTREAM_SHA}"
+        git push origin "HEAD:${SYNC_BRANCH}"
+        gh pr create \
+          --base main \
+          --head "${SYNC_BRANCH}" \
+          --title "Sync with upstream @ ${UPSTREAM_SHA}" \
+          --body-file "${SYNC_REPORT_PATH}"
+
+    - name: Stop after missing hook point
+      if: steps.preflight.outcome == 'failure'
+      shell: bash
+      run: |
+        echo "::error::Upstream removed or obscured a TRIATHLON-FORK hook point. See the blocked sync PR."
+        exit 1
+
+    - name: Reconcile with Pi
+      if: steps.preflight.outcome == 'success'
+      shell: bash
+      run: |
+        set +e
+        git merge --no-commit --no-ff "${UPSTREAM_REF}"
+        merge_status=$?
+        set -e
+        if [[ "${merge_status}" -ne 0 ]] && [[ -z "$(git diff --name-only --diff-filter=U)" ]]; then
+          echo "::error::git merge failed without producing conflicts Pi can reconcile."
+          exit "${merge_status}"
+        fi
+
+    - name: Run Pi headlessly
+      if: steps.preflight.outcome == 'success'
+      shell: bash
+      env:
+        PI_SKIP_VERSION_CHECK: "1"
+        PI_TELEMETRY: "0"
+      run: |
+        pi \
+          --print \
+          --no-session \
+          --no-extensions \
+          --no-skills \
+          --no-prompt-templates \
+          --no-context-files \
+          --no-approve \
+          --tools read,edit,write,grep,find,ls \
+          --provider anthropic \
+          --model "${{ inputs.model }}" \
+          < .agents/sync/reconcile.md
+
+    - name: Verify reconciliation
+      if: steps.preflight.outcome == 'success'
+      shell: bash
+      run: |
+        git add --all
+        node .agents/sync/guard.mjs verify
+
+    - name: Commit reconciled upstream
+      if: steps.preflight.outcome == 'success'
+      id: commit
+      shell: bash
+      run: |
+        git add --all
+        if git diff --cached --quiet; then
+          echo "changed=false" >> "${GITHUB_OUTPUT}"
+          exit 0
+        fi
+        git commit -m "chore: sync upstream @ ${UPSTREAM_SHA}"
+        git push origin "HEAD:${SYNC_BRANCH}"
+        echo "changed=true" >> "${GITHUB_OUTPUT}"
+
+    - name: Open reconciliation PR
+      if: steps.preflight.outcome == 'success' && steps.commit.outputs.changed == 'true'
+      shell: bash
+      run: |
+        {
+          echo "Automated reconciliation with \`${UPSTREAM_REF}\`."
+          echo
+          echo "- Upstream SHA: \`${UPSTREAM_SHA}\`"
+          echo "- Upstream content wins outside fork-owned additions."
+          echo "- Every \`TRIATHLON-FORK\` region passed byte-for-byte verification."
+          echo "- Whole new fork files passed byte-for-byte verification."
+        } > "${SYNC_REPORT_PATH}"
+
+        gh pr create \
+          --base main \
+          --head "${SYNC_BRANCH}" \
+          --title "Sync with upstream @ ${UPSTREAM_SHA}" \
+          --body-file "${SYNC_REPORT_PATH}"
