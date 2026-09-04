@@ -44,9 +44,16 @@ Default posture: these skills were designed for GitHub. If a `git remote` points
 - **GitHub**: issues live in the repo's GitHub Issues (uses the `gh` CLI)
 - **GitLab**: issues live in the repo's GitLab Issues (uses the [`glab`](https://gitlab.com/gitlab-org/cli) CLI)
 - **Local markdown**: issues live as files under `.scratch/<feature>/` in this repo (good for solo projects or repos without a remote)
+<!-- TRIATHLON-FORK-BEGIN -->
+- **Triathlon**: tickets live in a Triathlon project and are accessed through its `tickets.*` agent gateway tools
+<!-- TRIATHLON-FORK-END -->
 - **Other** (Jira, Linear, etc.): ask the user to describe the workflow in one paragraph; the skill will record it as freeform prose
 
 Record the choice in `docs/agents/issue-tracker.md`. The GitHub and GitLab templates carry a "PRs as a request surface" flag, defaulted **off**. Leave it off and don't raise it: a user who wants external PRs in the triage queue can flip the flag in the file later.
+
+<!-- TRIATHLON-FORK-BEGIN -->
+For Triathlon, confirm that `TRI_AGENT_URL`, `TRI_AGENT_KEY`, and `TRI_PROJECT_ID` are configured, then copy `issue-tracker-triathlon.md` to `docs/agents/issue-tracker.md`. The project ID is the write-scope safety check and the key remains a secret.
+<!-- TRIATHLON-FORK-END -->
 
 **Section B: Triage label vocabulary.** Skip this section entirely if the `triage` skill isn't installed (exploration told you), since an uninstalled skill needs no labels.
 
@@ -106,6 +113,9 @@ Then write the docs files using the seed templates in this skill folder as a sta
 - [issue-tracker-github.md](./issue-tracker-github.md): GitHub issue tracker
 - [issue-tracker-gitlab.md](./issue-tracker-gitlab.md): GitLab issue tracker
 - [issue-tracker-local.md](./issue-tracker-local.md): local-markdown issue tracker
+<!-- TRIATHLON-FORK-BEGIN -->
+- [issue-tracker-triathlon.md](./issue-tracker-triathlon.md): Triathlon ticket tracker
+<!-- TRIATHLON-FORK-END -->
 - [triage-labels.md](./triage-labels.md): label mapping (only if `triage` is installed)
 - [domain.md](./domain.md): domain doc consumer rules + layout
 
